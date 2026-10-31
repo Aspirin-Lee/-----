@@ -50,6 +50,11 @@ public class WorkflowTest {
             assertNotNull(screenshot);File dir=new File(c.getExternalFilesDir(null),"screenshots");dir.mkdirs();
             try(FileOutputStream out=new FileOutputStream(new File(dir,"main.png"))){screenshot.compress(Bitmap.CompressFormat.PNG,100,out);}
             screenshot.recycle();
+            try(android.os.ParcelFileDescriptor descriptor=InstrumentationRegistry.getInstrumentation().getUiAutomation()
+                .executeShellCommand("screencap -p /sdcard/Download/labday-main.png");
+                InputStream output=new android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)){
+                byte[] bytes=new byte[1024];while(output.read(bytes)!=-1){}
+            }
         }
     }
 }
