@@ -33,11 +33,11 @@ test('invalid responses do not silently become empty sources',async()=>{
 test('detail recursively reads nested blocks and returns image links',async()=>{
  const client=createNotionClient(config,async url=>{
   if(url.endsWith('pages/'+pageId))return Response.json(page);
-  if(url.includes('/'+pageId+'/children'))return Response.json({results:[{id:'nested',type:'toggle',has_children:true,toggle:{rich_text:[{plain_text:'Design'}]}}],has_more:false});
+  if(url.includes('/'+pageId+'/children'))return Response.json({results:[{id:'nested',type:'toggle',has_children:true,toggle:{rich_text:[{plain_text:'Design'}]}},{id:'previous-log',type:'toggle',has_children:true,toggle:{rich_text:[{plain_text:'实验记录 2030-01-01 · LabDay:00000000-0000-0000-0000-000000000003 · digest'}]}}],has_more:false});
   return Response.json({results:[{id:'p',type:'paragraph',paragraph:{rich_text:[{plain_text:'Synthetic nested detail'}]}},
    {id:'i',type:'image',image:{external:{url:'https://example.org/fixture.jpg'},caption:[]}}],has_more:false});
  });
- const result=await client.detail(pageId);assert.match(result.text,/Synthetic nested detail/);assert.equal(result.images.length,1);
+ const result=await client.detail(pageId);assert.match(result.text,/Synthetic nested detail/);assert.equal(result.images.length,1);assert.equal(result.omittedExecutionLogs,1);assert.ok(!result.text.includes('LabDay:'));
 });
 test('arbitrary pages outside configured data source are rejected before block access',async()=>{
  let calls=0;const client=createNotionClient(config,async()=>{calls++;return Response.json({...page,parent:{data_source_id:'00000000-0000-0000-0000-000000000099'}});});

@@ -77,13 +77,14 @@ export function createNotionClient(config, fetcher = fetch) {
     },
     async detail(id) {
       const page = await allowed(id), lines = [], images = [];
-      let count = 0, truncated = false, unsupported = 0;
+      let count = 0, truncated = false, unsupported = 0, omittedExecutionLogs = 0;
       async function walk(parent, depth) {
         if (depth > 6) { truncated = true; return; }
         for (const block of await children(parent)) {
           if (++count > 500) { truncated = true; return; }
           const payload = block[block.type] ?? {};
           const text = plain(payload.rich_text ?? payload.caption);
+          if (block.type === 'toggle' && /^实验记录 .*LabDay:[a-f0-9-]{36}/i.test(text)) { omittedExecutionLogs++; continue; }
           if (text) lines.push('  '.repeat(depth) + (block.type === 'to_do' ? payload.checked ? '[x] ' : '[ ] ' : '') + text);
           if (block.type === 'image') {
             const url = payload.file?.url ?? payload.external?.url;
@@ -98,7 +99,7 @@ export function createNotionClient(config, fetcher = fetch) {
         }
       }
       await walk(id, 0);
-      return { ...mapPage(page), text: lines.join('\n'), images, truncated, unsupported };
+      return { ...mapPage(page), text: lines.join('\n'), images, truncated, unsupported, omittedExecutionLogs };
     },
     async append(id, payload) {
       await allowed(id);

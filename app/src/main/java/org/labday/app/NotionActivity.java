@@ -94,6 +94,7 @@ public class NotionActivity extends Activity {
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(24,12,24,12);
         TextView text=Ui.text(body,detail.optString("text","此页面暂无文字内容"),16);text.setTextIsSelectable(true);
         if(detail.optBoolean("truncated")||detail.optInt("unsupported")>0)Ui.text(body,"部分内容未展开或包含暂不支持的块，请打开 Notion 查看完整原文。",14);
+        if(detail.optInt("omittedExecutionLogs")>0)Ui.text(body,"已省略 "+detail.optInt("omittedExecutionLogs")+" 份历史执行记录，避免当成新实验设计重复导入；可在 Notion 中查看。",14);
         JSONArray images=detail.optJSONArray("images");
         if(images!=null)for(int i=0;i<images.length();i++){
             JSONObject image=images.optJSONObject(i);if(image!=null)Ui.button(body,"查看原方案图片："+image.optString("caption","图片"),()->open(image.optString("url")));
