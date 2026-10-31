@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
         LinearLayout tabs = new LinearLayout(this); list.addView(tabs);
         for(int i=0;i<3;i++) { final int day=i; button(new String[]{"今天","明天","后天"}[i], tabs, ()->{offset=day;render();}); }
         button("＋ 新建实验",list,()->edit(null));
+        button("Notion 任务（只读连接）",list,()->startActivity(new Intent(this,NotionActivity.class)));
         int count=0;
         for(int i=0;i<records.length();i++) {
             JSONObject o=records.optJSONObject(i); if(o==null) continue;
