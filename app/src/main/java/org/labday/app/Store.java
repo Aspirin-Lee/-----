@@ -61,17 +61,23 @@ public class Store extends SQLiteOpenHelper {
             c.getSharedPreferences("migration",0).edit().putBoolean("done",true).commit();
         }catch(JSONException e){throw new IllegalStateException("旧记录迁移失败，请勿卸载应用",e);}
     }
+    public static String contentKey(JSONObject record){
+        JSONObject payload=new JSONObject();
+        for(String key:new String[]{"title","date","project","sample","design","result","anomaly","imageNotes","done","photos","notionId"})
+            put(payload,key,record.opt(key)==null?JSONObject.NULL:record.opt(key));
+        return payload.toString();
+    }
     public synchronized void queue(JSONObject record){
         JSONArray pending=all("outbox");
-        String digest=record.toString();
+        String digest=record.toString();String key=contentKey(record);
         for(int i=0;i<pending.length();i++){
             JSONObject job=pending.optJSONObject(i);
-            if(job!=null && job.optString("recordId").equals(record.optString("id")) && job.optString("snapshot").equals(digest))
+            if(job!=null && job.optString("recordId").equals(record.optString("id")) && job.optString("contentKey").equals(key))
                 return;
         }
         JSONObject job=new JSONObject();String id=UUID.randomUUID().toString();
         put(job,"id",id);put(job,"recordId",record.optString("id"));put(job,"snapshot",digest);
-        put(job,"state","pending");put(job,"message","等待同步");put(job,"createdAt",Instant.now().toString());
+        put(job,"contentKey",key);put(job,"state","pending");put(job,"message","等待同步");put(job,"createdAt",Instant.now().toString());
         set("outbox",id,job);
     }
     public synchronized String syncState(String recordId){
@@ -83,7 +89,7 @@ public class Store extends SQLiteOpenHelper {
         JSONObject current=get("records",recordId);
         if(last!=null&&current!=null){
             boolean matches=false;
-            for(int i=0;i<rows.length();i++){JSONObject o=rows.optJSONObject(i);if(o!=null&&o.optString("recordId").equals(recordId)&&o.optString("snapshot").equals(current.toString()))matches=true;}
+            for(int i=0;i<rows.length();i++){JSONObject o=rows.optJSONObject(i);if(o!=null&&o.optString("recordId").equals(recordId)&&o.optString("contentKey").equals(contentKey(current)))matches=true;}
             if(!matches)return "有新修改，仅保存在手机";
         }
         return last==null?"仅保存在手机":last;

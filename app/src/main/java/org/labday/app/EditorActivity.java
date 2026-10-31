@@ -73,6 +73,7 @@ public class EditorActivity extends Activity {
             TextView t=new TextView(this);t.setText(record.optString("notionText"));t.setPadding(24,16,24,16);t.setTextIsSelectable(true);
             ScrollView scroll=new ScrollView(this);scroll.addView(t);new AlertDialog.Builder(this).setTitle("原方案缓存（只读）").setView(scroll).setPositiveButton("关闭",null).show();
         });
+        Ui.button(box,"设置本次实验的日期提醒",this::planReminder);
         Ui.button(box,"保存本次记录",()->{if(commit()){Ui.toast(this,"已保存在手机");finish();}});
         Ui.button(box,"保存并排队同步到 Notion",()->{
             if(record.optString("notionId").isEmpty()){Ui.toast(this,"请先关联 Notion 实验方案");return;}
@@ -92,6 +93,22 @@ public class EditorActivity extends Activity {
             .setPositiveButton("放弃草稿",(d,w)->{handler.removeCallbacks(autosave);rendering=true;store.remove("drafts",id);finish();})
             .setNegativeButton("继续编辑",null).show());
         rendering=false;
+    }
+    private void planReminder(){
+        collect();
+        if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},90);Ui.toast(this,"请允许通知后再次设置提醒");return;
+        }
+        final LocalDate date;
+        try{date=LocalDate.parse(record.optString("date"));}catch(Exception e){Ui.toast(this,"请先设置有效计划日期");return;}
+        new TimePickerDialog(this,(v,h,m)->{
+            long at=date.atTime(h,m).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            if(at<=System.currentTimeMillis()){Ui.toast(this,"提醒时间必须晚于现在");return;}
+            JSONObject reminder=new JSONObject();String rid=UUID.randomUUID().toString();
+            Store.put(reminder,"id",rid);Store.put(reminder,"title",record.optString("title","实验提醒"));
+            Store.put(reminder,"recordId",id);Store.put(reminder,"at",at);
+            store.set("reminders",rid,reminder);ReminderReceiver.schedule(this,reminder);persistDraft();Ui.toast(this,"已设置计划提醒，系统可能延迟通知");
+        },9,0,true).show();
     }
     private JSONArray media(){JSONArray photos=record.optJSONArray("photos");if(photos==null){photos=new JSONArray();Store.put(record,"photos",photos);}return photos;}
     private void add(String key,String label,boolean multi){
@@ -153,7 +170,14 @@ public class EditorActivity extends Activity {
                 BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;BitmapFactory.decodeFile(file.getPath(),options);
                 if(options.outWidth<=0)throw new IOException("无法识别此图片格式");
             }catch(Exception e){file.delete();failure=e.getMessage();}
-            final String error=failure;runOnUiThread(()->{if(isDestroyed())return;if(error==null)addPhoto(name);else Ui.toast(this,"图片保存失败："+error);});
+            final String error=failure;runOnUiThread(()->{
+                if(isDestroyed()){
+                    if(error==null){Store backup=new Store(getApplicationContext());try{
+                        JSONObject draft=backup.get("drafts",id);if(draft!=null){JSONObject p=new JSONObject();Store.put(p,"file",name);Store.put(p,"caption","");draft.optJSONArray("photos").put(p);backup.set("drafts",id,draft);}
+                    }finally{backup.close();}}return;
+                }
+                if(error==null)addPhoto(name);else Ui.toast(this,"图片保存失败："+error);
+            });
         });
     }
     private void addPhoto(String name){JSONObject p=new JSONObject();Store.put(p,"file",name);Store.put(p,"caption","");media().put(p);persistDraft();renderPhotos();}

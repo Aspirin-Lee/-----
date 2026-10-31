@@ -29,7 +29,9 @@ public class ReminderReceiver extends BroadcastReceiver {
             if(Build.VERSION.SDK_INT>=33&&c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
             NotificationManager manager=(NotificationManager)c.getSystemService(Context.NOTIFICATION_SERVICE);
             manager.createNotificationChannel(new NotificationChannel("experiments","实验提醒",NotificationManager.IMPORTANCE_HIGH));
-            PendingIntent open=PendingIntent.getActivity(c,0,new Intent(c,MainActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+            Intent target=r.optString("recordId").isEmpty()?new Intent(c,MainActivity.class):new Intent(c,EditorActivity.class).putExtra("id",r.optString("recordId"));
+            target.setData(android.net.Uri.parse("labday://notification/"+id));
+            PendingIntent open=PendingIntent.getActivity(c,id.hashCode(),target,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             manager.notify(id.hashCode(),new Notification.Builder(c,"experiments").setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setContentTitle(r.optString("title","实验提醒")).setContentText("请查看实验安排或步骤计时")
                 .setContentIntent(open).setAutoCancel(true).build());

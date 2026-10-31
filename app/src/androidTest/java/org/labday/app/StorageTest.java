@@ -34,7 +34,7 @@ public class StorageTest {
         store.saveRecord(r);assertNull(store.get("drafts",r.getString("id")));assertNotNull(store.get("records",r.getString("id")));
     }
     @Test public void queuedSnapshotsAreImmutableAndDeduplicated()throws Exception{
-        JSONObject r=Store.fresh();Store.put(r,"title","Synthetic execution");store.queue(r);store.queue(r);assertEquals(1,store.all("outbox").length());
+        JSONObject r=Store.fresh();Store.put(r,"title","Synthetic execution");store.queue(r);Store.put(r,"updatedAt","later-fixture-timestamp");store.queue(r);assertEquals(1,store.all("outbox").length());
         Store.put(r,"result","New observation");store.queue(r);assertEquals(2,store.all("outbox").length());
         String first=store.all("outbox").getJSONObject(1).getString("snapshot");assertFalse(first.contains("New observation"));
     }
