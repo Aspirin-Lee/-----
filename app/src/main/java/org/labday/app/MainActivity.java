@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
     }
     private void render() {
         ScrollView scroll = new ScrollView(this);
-        list = new LinearLayout(this); list.setOrientation(1); list.setPadding(24,36,24,24);
+        list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); list.setPadding(24,36,24,24);
         scroll.addView(list); setContentView(scroll);
         TextView title = new TextView(this); title.setText("实验日程 · "+LocalDate.now().plusDays(offset)); title.setTextSize(23); list.addView(title);
         TextView status = new TextView(this); status.setText("本机离线记录 · 尚未连接 Notion"); list.addView(status);
@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private void edit(JSONObject existing) {
         JSONObject o=existing==null?new JSONObject():existing;
         if(existing==null) { put(o,"id",UUID.randomUUID().toString());put(o,"date",LocalDate.now().plusDays(offset).toString());put(o,"photos",new JSONArray()); }
-        LinearLayout box=new LinearLayout(this);box.setOrientation(1);box.setPadding(28,12,28,12);
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(28,12,28,12);
         EditText title=field(box,"实验名称",o.optString("title"));
         EditText date=field(box,"日期 YYYY-MM-DD",o.optString("date"));
         EditText design=field(box,"实验设计、样本编号和条件",o.optString("design"));
