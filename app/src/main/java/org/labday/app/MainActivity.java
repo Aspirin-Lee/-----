@@ -1,123 +1,128 @@
 package org.labday.app;
-
 import android.app.*;
-import android.os.Bundle;
 import android.content.*;
-import android.net.Uri;
-import android.speech.RecognizerIntent;
-import android.view.*;
+import android.content.pm.PackageManager;
+import android.os.*;
+import android.text.*;
 import android.widget.*;
 import org.json.*;
-import java.time.LocalDate;
+import java.time.*;
 import java.util.*;
-import java.io.*;
+import java.util.concurrent.*;
 
 public class MainActivity extends Activity {
-    private JSONArray records = new JSONArray();
-    private LinearLayout list;
-    private int offset = 0;
-    private EditText voiceTarget;
-    private JSONObject photoTarget;
-    private static final int VOICE = 11, PHOTO = 12;
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        try { records = new JSONArray(getPreferences(0).getString("records", "[]")); }
-        catch (JSONException e) { toast("无法读取记录，请保留应用数据并联系维护者"); }
-        render();
-    }
-    private void save() {
-        getPreferences(0).edit().putString("records", records.toString()).apply();
-    }
-    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
-    private void put(JSONObject o, String k, Object v) {
-        try { o.put(k,v); } catch(JSONException e) { throw new IllegalStateException(e); }
-    }
-    private Button button(String s, LinearLayout parent, Runnable action) {
-        Button b = new Button(this); b.setText(s); parent.addView(b);
-        b.setOnClickListener(v -> action.run()); return b;
-    }
-    private void render() {
-        ScrollView scroll = new ScrollView(this);
-        list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); list.setPadding(24,36,24,24);
-        scroll.addView(list); setContentView(scroll);
-        TextView title = new TextView(this); title.setText("实验日程 · "+LocalDate.now().plusDays(offset)); title.setTextSize(23); list.addView(title);
-        TextView status = new TextView(this); status.setText("本机离线记录 · 尚未连接 Notion"); list.addView(status);
-        LinearLayout tabs = new LinearLayout(this); list.addView(tabs);
-        for(int i=0;i<3;i++) { final int day=i; button(new String[]{"今天","明天","后天"}[i], tabs, ()->{offset=day;render();}); }
-        button("＋ 新建实验",list,()->edit(null));
-        button("Notion 任务（只读连接）",list,()->startActivity(new Intent(this,NotionActivity.class)));
-        int count=0;
-        for(int i=0;i<records.length();i++) {
-            JSONObject o=records.optJSONObject(i); if(o==null) continue;
-            if(!o.optString("date").equals(LocalDate.now().plusDays(offset).toString())) continue;
-            count++;
-            button((o.optBoolean("done")?"✓ ":"○ ")+o.optString("title"),list,()->edit(o));
-            TextView result=new TextView(this);
-            result.setText("结果："+o.optString("result","")+"\n图片："+o.optJSONArray("photos").length()+" 张");
-            list.addView(result);
-        }
-        if(count==0) { TextView empty=new TextView(this); empty.setText("当天暂无实验。点击上方按钮添加。"); list.addView(empty); }
-        button("查看功能与同步说明",list,()->new AlertDialog.Builder(this).setTitle("原型 0.1")
-            .setMessage("记录保存在本机。卸载会丢失，请勿用于唯一原始记录。语音由系统识别服务提供，可能需要联网；专业术语和数值请核对。图片复制到应用私有目录。Notion 同步和导出尚未实现。").setPositiveButton("知道了",null).show());
-    }
-    private EditText field(LinearLayout box,String hint,String value) {
-        EditText e=new EditText(this); e.setHint(hint); e.setText(value); box.addView(e); return e;
-    }
-    private void edit(JSONObject existing) {
-        JSONObject o=existing==null?new JSONObject():existing;
-        if(existing==null) { put(o,"id",UUID.randomUUID().toString());put(o,"date",LocalDate.now().plusDays(offset).toString());put(o,"photos",new JSONArray()); }
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(28,12,28,12);
-        EditText title=field(box,"实验名称",o.optString("title"));
-        EditText date=field(box,"日期 YYYY-MM-DD",o.optString("date"));
-        EditText design=field(box,"实验设计、样本编号和条件",o.optString("design"));
-        EditText result=field(box,"观察、结果与异常",o.optString("result"));
-        CheckBox done=new CheckBox(this);done.setText("已完成");done.setChecked(o.optBoolean("done"));box.addView(done);
-        button("语音填写结果",box,()->{
-            voiceTarget=result;
-            Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"zh-CN");
-            try{startActivityForResult(intent,VOICE);}catch(ActivityNotFoundException e){toast("此手机未安装语音识别服务，可使用输入法语音输入");}
+    private Store store;private LinearLayout rows;private EditText search;
+    private String filter=LocalDate.now().toString();
+    private final ExecutorService worker=Executors.newSingleThreadExecutor();
+    private static final int EXPORT=20,IMPORT=21;
+    @Override public void onCreate(Bundle state){
+        super.onCreate(state);store=new Store(this);store.migrate(this);
+        LinearLayout box=Ui.screen(this,"实验日程");
+        Ui.text(box,"安排 · 执行 · 结果 · 追溯",15);
+        Ui.button(box,"＋ 新建实验记录",()->openDraft(Store.fresh()));
+        LinearLayout tabs=new LinearLayout(this);box.addView(tabs);
+        for(int i=0;i<3;i++){final int n=i;Ui.button(tabs,new String[]{"今天","明天","后天"}[i],()->{filter=LocalDate.now().plusDays(n).toString();load();});}
+        Ui.button(box,"日历选择日期",()->{
+            LocalDate now=LocalDate.now();new DatePickerDialog(this,(v,y,m,d)->{filter=LocalDate.of(y,m+1,d).toString();load();},now.getYear(),now.getMonthValue()-1,now.getDayOfMonth()).show();
         });
-        TextView photos=new TextView(this);photos.setText("已保存图片："+o.optJSONArray("photos").length()+" 张");box.addView(photos);
-        button("添加图片（先保存实验）",box,()->toast("保存后可从列表中的图片按钮添加"));
-        ScrollView scroll=new ScrollView(this);scroll.addView(box);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("实验记录").setView(scroll)
-            .setPositiveButton("保存",null).setNegativeButton("取消",null).create();
-        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{
-            if(title.getText().toString().trim().isEmpty()){title.setError("请输入名称");return;}
-            try{LocalDate.parse(date.getText().toString());}catch(Exception e){date.setError("日期格式应为 YYYY-MM-DD");return;}
-            put(o,"title",title.getText().toString().trim());put(o,"date",date.getText().toString());put(o,"design",design.getText().toString());put(o,"result",result.getText().toString());put(o,"done",done.isChecked());
-            if(existing==null)records.put(o);save();dialog.dismiss();render();
-        }));
-        dialog.show();
-        if(existing!=null) {
-            button("添加图片",box,()->{
-                photoTarget=o;Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.setType("image/*");intent.addCategory(Intent.CATEGORY_OPENABLE);
-                try{startActivityForResult(intent,PHOTO);}catch(ActivityNotFoundException e){toast("未找到图片选择器");}
-            });
-            JSONArray pictures=o.optJSONArray("photos");
-            for(int i=0;i<pictures.length();i++){
-                String path=pictures.optString(i);ImageView image=new ImageView(this);
-                image.setAdjustViewBounds(true);image.setMaxHeight(400);image.setImageURI(Uri.fromFile(new File(getFilesDir(),path)));box.addView(image);
-            }
+        Ui.button(box,"全部记录 / 历史",()->{filter="";load();});
+        search=Ui.field(box,"搜索名称、样本、项目、设计和结果","",false);
+        search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){load();}public void afterTextChanged(Editable e){}});
+        Ui.button(box,"Notion 任务与连接",()->startActivity(new Intent(this,NotionActivity.class)));
+        Ui.button(box,"同步队列与重试",this::queue);
+        Ui.button(box,"实验模板",this::templates);
+        Ui.button(box,"提醒与步骤计时",this::reminders);
+        Ui.button(box,"导出完整备份 ZIP（含原图与 Markdown）",()->{
+            Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
+            intent.putExtra(Intent.EXTRA_TITLE,"LabDay-"+LocalDate.now()+".zip");startActivityForResult(intent,EXPORT);
+        });
+        Ui.button(box,"从 ZIP 恢复（保留现有记录）",()->new AlertDialog.Builder(this).setMessage("恢复会新增副本，保留现有记录。不会恢复待发送任务或密钥。请先导出当前数据。")
+            .setPositiveButton("选择备份",(d,w)->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE),IMPORT)).setNegativeButton("取消",null).show());
+        rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);box.addView(rows);load();
+    }
+    private void openDraft(JSONObject record){store.set("drafts",record.optString("id"),record);startActivity(new Intent(this,EditorActivity.class).putExtra("id",record.optString("id")));}
+    @Override protected void onResume(){super.onResume();if(rows!=null)load();}
+    private void load(){
+        if(rows==null)return;rows.removeAllViews();
+        String query=search==null?"":search.getText().toString().trim().toLowerCase(Locale.ROOT);
+        Ui.text(rows,filter.isEmpty()?"全部记录":filter+" 的安排",20);
+        JSONArray drafts=store.all("drafts");
+        if(drafts.length()>0){
+            Ui.text(rows,"未提交草稿（自动保存）",18);
+            for(int i=0;i<drafts.length();i++){JSONObject draft=drafts.optJSONObject(i);if(draft!=null)Ui.button(rows,"恢复草稿 · "+draft.optString("title","未命名"),()->startActivity(new Intent(this,EditorActivity.class).putExtra("id",draft.optString("id"))));}
         }
+        JSONArray records=store.all("records");List<JSONObject> visible=new ArrayList<>();
+        for(int i=0;i<records.length();i++){
+            JSONObject o=records.optJSONObject(i);if(o==null)continue;
+            if(!filter.isEmpty()&&!filter.equals(o.optString("date")))continue;
+            String haystack=(o.optString("title")+" "+o.optString("sample")+" "+o.optString("project")+" "+o.optString("design")+" "+o.optString("result")+" "+o.optString("anomaly")).toLowerCase(Locale.ROOT);
+            if(!haystack.contains(query))continue;visible.add(o);
+        }
+        visible.sort((a,b)->b.optString("date").compareTo(a.optString("date")));
+        for(JSONObject o:visible){
+            LinearLayout card=Ui.card(rows);
+            Ui.text(card,(o.optBoolean("done")?"✓ ":"○ ")+o.optString("title"),19);
+            Ui.text(card,o.optString("date")+" · "+o.optString("project")+" · "+o.optString("sample"),14);
+            Ui.text(card,store.syncState(o.optString("id")),13);
+            String result=o.optString("result");Ui.text(card,result.length()>140?result.substring(0,140)+"…":result,15);
+            Ui.button(card,"查看 / 记录结果",()->startActivity(new Intent(this,EditorActivity.class).putExtra("id",o.optString("id"))));
+        }
+        if(visible.isEmpty())Ui.text(rows,"暂无符合条件的记录。",16);
+    }
+    private void templates(){
+        JSONArray templates=store.all("templates");List<String> names=new ArrayList<>();names.add("通用实验记录模板");
+        for(int i=0;i<templates.length();i++)names.add(templates.optJSONObject(i).optString("title"));
+        new AlertDialog.Builder(this).setTitle("从模板建立本次执行").setItems(names.toArray(new String[0]),(d,w)->{
+            JSONObject record=Store.fresh();
+            if(w==0){Store.put(record,"title","新实验");Store.put(record,"design","目的：\n样本与分组：\n对照：\n关键条件：\n操作步骤：\n预期观察：");}
+            else{JSONObject t=templates.optJSONObject(w-1);for(String key:new String[]{"title","design","project"})Store.put(record,key,t.optString(key));}
+            openDraft(record);
+        }).setNegativeButton("关闭",null).show();
+    }
+    private void queue(){
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(20,10,20,10);
+        Ui.text(box,"任务保存的是当次快照。修改记录后，需重新提交新的同步任务。",14);
+        JSONArray jobs=store.all("outbox");
+        for(int i=0;i<jobs.length();i++){
+            JSONObject job=jobs.optJSONObject(i);if(job==null)continue;
+            String title=job.optString("recordId");try{title=new JSONObject(job.optString("snapshot")).optString("title");}catch(JSONException ignored){}
+            Ui.text(box,title+"\n"+job.optString("message"),15);
+            if(!job.optString("state").equals("synced"))Ui.button(box,"重试此任务",()->new AlertDialog.Builder(this)
+                .setMessage("若显示写入结果未知，请先查看 Notion，确认是否已经出现本次记录。同一任务使用原操作编号重试，不要另建任务。")
+                .setPositiveButton("用原编号重试",(d,w)->{Store.put(job,"state","pending");Store.put(job,"message","等待重试");store.set("outbox",job.optString("id"),job);syncNow();}).setNegativeButton("取消",null).show());
+        }
+        Ui.button(box,"立即同步待发送任务",this::syncNow);
+        ScrollView scroll=new ScrollView(this);scroll.addView(box);
+        new AlertDialog.Builder(this).setTitle("同步队列").setView(scroll).setPositiveButton("关闭",(d,w)->load()).show();
+    }
+    private void syncNow(){
+        Ui.toast(this,"正在同步，可继续记录。");worker.execute(()->{String result=SyncEngine.run(getApplicationContext());runOnUiThread(()->{if(!isFinishing()){Ui.toast(this,result);load();}});});
+    }
+    private void reminders(){
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
+        EditText title=Ui.field(box,"提醒名称","实验步骤计时",false),minutes=Ui.field(box,"几分钟后提醒","30",false);minutes.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        Ui.text(box,"系统可能延迟通知；不适合要求秒级精度的关键步骤。重启后会恢复尚未到期提醒。",14);
+        Ui.button(box,"开始计时",()->{
+            if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},90);Ui.toast(this,"请允许通知后再次开始计时");return;
+            }
+            try{
+                long n=Long.parseLong(minutes.getText().toString());if(n<1||n>10080)throw new Exception();
+                JSONObject r=new JSONObject();String id=UUID.randomUUID().toString();Store.put(r,"id",id);Store.put(r,"title",title.getText().toString());Store.put(r,"at",System.currentTimeMillis()+n*60000);
+                store.set("reminders",id,r);ReminderReceiver.schedule(this,r);Ui.toast(this,"已设置提醒");
+            }catch(Exception e){minutes.setError("请输入1至10080分钟");}
+        });
+        JSONArray rs=store.all("reminders");
+        for(int i=0;i<rs.length();i++){JSONObject r=rs.optJSONObject(i);if(r!=null)Ui.button(box,"取消："+r.optString("title")+" · "+Instant.ofEpochMilli(r.optLong("at")).atZone(ZoneId.systemDefault()).toLocalDateTime(),()->{ReminderReceiver.cancel(this,r.optString("id"));store.remove("reminders",r.optString("id"));Ui.toast(this,"已取消提醒");});}
+        ScrollView scroll=new ScrollView(this);scroll.addView(box);new AlertDialog.Builder(this).setTitle("提醒与步骤计时").setView(scroll).setPositiveButton("关闭",null).show();
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null)return;
-        if(request==VOICE&&voiceTarget!=null){
-            ArrayList<String> words=data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if(words!=null&&!words.isEmpty())voiceTarget.append((voiceTarget.length()>0?"\n":"")+words.get(0));
-        }
-        if(request==PHOTO&&photoTarget!=null&&data.getData()!=null){
-            File dest=new File(getFilesDir(),UUID.randomUUID()+".image");
-            try(InputStream in=getContentResolver().openInputStream(data.getData());OutputStream out=new FileOutputStream(dest)){
-                if(in==null)throw new IOException("图片不可读");
-                byte[] b=new byte[8192];int n;long total=0;
-                while((n=in.read(b))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("图片超过20MB");out.write(b,0,n);}
-                photoTarget.optJSONArray("photos").put(dest.getName());save();toast("图片已保存，重新打开记录查看");render();
-            }catch(IOException e){dest.delete();toast("图片保存失败："+e.getMessage());}
+        super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(request==EXPORT||request==IMPORT){
+            android.net.Uri uri=data.getData();Ui.toast(this,request==EXPORT?"正在导出，请勿退出应用":"正在恢复，请勿退出应用");
+            worker.execute(()->{String message;try{message=request==EXPORT?Archive.export(this,uri):Archive.restore(this,uri);}catch(Exception e){message="操作失败："+e.getMessage();}
+                final String text=message;runOnUiThread(()->{if(!isFinishing()){Ui.toast(this,text);load();}});});
         }
     }
+    @Override protected void onDestroy(){worker.shutdown();if(store!=null)store.close();super.onDestroy();}
 }

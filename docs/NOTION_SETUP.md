@@ -1,38 +1,25 @@
-# Notion 只读接入与 Render 部署
+# Notion 网关与权限
+1. 在 Notion 开发者门户创建 API 令牌连接。授予读取内容及插入内容能力；无需更新或删除既有内容。
+2. 连接只授权自己选定的实验任务页面/数据库。
+3. Render 的 NOTION_TOKEN 保存令牌，NOTION_DATA_SOURCE_ID 保存内嵌数据源 ID。不要把这两个值写入公开仓库。
+4. APP_ACCESS_TOKEN 是独立的手机访问密钥；在 Android 连接页面输入后经 Keystore 加密保存。备份不包含此密钥。
+5. render.yaml 声明 Free 计划。升级代码后 Render 跟随 main 自动部署，不能把健康检查成功视为 Notion 授权已验证。
 
-## 当前边界
-服务端只读接口已实现；尚未部署，没有真实凭据或真实 API 端到端测试。
-安卓已提供只读连接页面，填写 HTTPS 根地址和 APP_ACCESS_TOKEN 后读取任务；服务仍需先部署并获得授权。尚未真机验证。
-ChatGPT 的 Notion 授权不能自动转移给此服务。
-所有自动测试只使用虚构数据。不得把工作区 ID、实验条目或密钥写进此公开仓库。
+## API
+- GET /health：公开，仅进程健康与版本。
+- GET /experiments?cursor=...：认证分页列表。
+- GET /experiments/{pageId}：认证详情，检查页面属于配置的数据源，读取嵌套块，上限500块/6层，明确返回截断与未支持标志。
+- POST /experiments/{pageId}/logs：认证追加执行快照和图片，检查页面范围，不覆盖原有内容。
+- 每次快照的 operationId 固定。服务端在页面根块中查找操作标记，同编号同内容返回已完成，不同内容返回409。
+- 单实例进程内串行化同一页面的追加。不保证跨实例、进程崩溃或 Notion 超时的严格 exactly-once。
+- 写入超时返回 write_uncertain，手机暂停此任务，用户先核查 Notion，再用原操作编号重试。
+- 图片先通过 Notion file_uploads 创建/发送，再随同一个折叠记录追加；失败的未关联上传可能留待 Notion 过期清理。
+- 网关最多并发4个请求，请求体上限10MB。不会记录令牌或实验正文。
 
-## 授权
-1. 在 Notion 的 https://www.notion.so/profile/integrations 创建个人内部 connection。
-2. 仅勾选读取内容能力。在目标页面的连接菜单中添加此 connection；确认其中的实验数据库可访问。
-3. 在 Render 的 Environment 中保存 NOTION_TOKEN，而非 GitHub 文件、聊天或 APK。
-4. NOTION_DATA_SOURCE_ID 填目标页面内嵌数据库的数据源 ID（不是外层页面 ID，也不是数据库 ID）。
-   可使用 Retrieve database API 查询其 data_sources。数据源 ID 由用户在私有部署配置中填写。
-5. APP_ACCESS_TOKEN 是手机访问此网关的独立密钥，不能使用 NOTION_TOKEN 代替。
-
-## Render 部署
-1. 注册并登录 https://dashboard.render.com/ ，连接自己的 GitHub。
-2. 新建 Blueprint，选择当前仓库与 main 分支；Render 读取根目录 render.yaml。
-3. 检查选择 Free 计划，填写 NOTION_TOKEN、NOTION_DATA_SOURCE_ID。APP_ACCESS_TOKEN 自动生成。
-4. 部署成功后得到 HTTPS 服务地址，访问 /health 仅验证进程存活。
-5. 携带 Authorization: Bearer <APP_ACCESS_TOKEN> 访问 GET /experiments 才会验证 Notion 授权。
-   首次响应有 nextCursor 时，应继续携带 cursor 参数获取后续页。空列表不等于部署失败。
-6. /health 不校验 Notion 凭据。401 是网关密钥不正确；notion_source_not_shared 表示源 ID 或共享权限需检查。
-7. Free 实例可能休眠，首次请求需等待唤醒；此服务不使用本地持久化，也不托管原始图片。
-
-## 字段规则
-- 自动识别 title 类型字段，名称无需固定为 Name。
-- 默认读取“计划日期”的 date.start 和“状态”的 status/select.name，可用环境变量覆盖。
-- 没有日期或状态时返回 null；客户端应显示“待安排”，不能使用创建时间推断日期。
-- 不写入或更改源数据库；尚未实现实验设计详情、图片下载和双向同步。
-- 正式版需增加日程导入、限流/配额、设备凭据管理及真机端到端验证。
-
-## API 与测试
-GET /experiments?cursor=...：需认证，返回 items、nextCursor、readOnly。
-所有写入方法返回 405。仅配置的数据源可查询，没有任意页面代理。
-Node 22，命令 node --test server/notion.test.mjs；GitHub Actions 同时构建 Docker 镜像。
-凭据保存在运行环境中；错误响应不透传 Notion 原始响应，服务不记录实验正文。
+## 真实验收（必须使用用户选定的测试记录）
+读取真实任务；打开有嵌套块的详情；关联并设置日期；
+拍照/选图并填写说明；断网保存，重启恢复；联网后同步；
+在 Notion 验证追加内容和图片；用同一操作编号重试，确认未重复；
+撤销插入权限，确认手机显示失败且本机记录保留；
+ZIP备份恢复，检查原图与记录；真机通知、重启和厂商后台限制需单独验证。
+自动测试通过不等于上述真实验收全部通过。
