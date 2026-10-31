@@ -75,8 +75,17 @@ public class Store extends SQLiteOpenHelper {
         set("outbox",id,job);
     }
     public synchronized String syncState(String recordId){
-        JSONArray rows=all("outbox");
-        for(int i=0;i<rows.length();i++){JSONObject o=rows.optJSONObject(i);if(o!=null&&o.optString("recordId").equals(recordId))return o.optString("message");}
-        return "仅保存在手机";
+        JSONArray rows=all("outbox");String last=null;
+        for(int i=0;i<rows.length();i++){JSONObject o=rows.optJSONObject(i);if(o!=null&&o.optString("recordId").equals(recordId)){
+            if(!o.optString("state").equals("synced"))return o.optString("message");
+            if(last==null)last=o.optString("message");
+        }}
+        JSONObject current=get("records",recordId);
+        if(last!=null&&current!=null){
+            boolean matches=false;
+            for(int i=0;i<rows.length();i++){JSONObject o=rows.optJSONObject(i);if(o!=null&&o.optString("recordId").equals(recordId)&&o.optString("snapshot").equals(current.toString()))matches=true;}
+            if(!matches)return "有新修改，仅保存在手机";
+        }
+        return last==null?"仅保存在手机":last;
     }
 }

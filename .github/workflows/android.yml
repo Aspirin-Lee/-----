@@ -58,8 +58,13 @@ jobs:
           arch: x86_64
           profile: pixel_6
           script: gradle --no-daemon :app:connectedDebugAndroidTest
+      - name: Pull emulator preview
+        if: always()
+        run: adb pull /sdcard/Android/data/org.labday.app/files/screenshots app/build/emulator-preview || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Android-device-test-reports
-          path: app/build/reports/androidTests/
+          path: |
+            app/build/reports/androidTests/
+            app/build/emulator-preview/

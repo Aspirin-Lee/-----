@@ -96,7 +96,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("同步队列").setView(scroll).setPositiveButton("关闭",(d,w)->load()).show();
     }
     private void syncNow(){
-        Ui.toast(this,"正在同步，可继续记录。");worker.execute(()->{String result=SyncEngine.run(getApplicationContext());runOnUiThread(()->{if(!isFinishing()){Ui.toast(this,result);load();}});});
+        Ui.toast(this,"正在同步，可继续记录。");worker.execute(()->{String result=SyncEngine.run(getApplicationContext());if(SyncEngine.hasPending(this))SyncEngine.schedule(this);runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){Ui.toast(this,result);load();}});});
     }
     private void reminders(){
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);

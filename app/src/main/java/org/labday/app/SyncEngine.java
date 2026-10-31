@@ -15,6 +15,9 @@ public class SyncEngine {
             .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPersisted(true)
             .setBackoffCriteria(30000,JobInfo.BACKOFF_POLICY_EXPONENTIAL).build());
     }
+    public static boolean hasPending(Context c){
+        Store store=new Store(c);try{JSONArray jobs=store.all("outbox");for(int i=0;i<jobs.length();i++){JSONObject j=jobs.optJSONObject(i);if(j!=null&&j.optString("state").equals("pending"))return true;}return false;}finally{store.close();}
+    }
     public static String run(Context context) {
         synchronized(LOCK){
             Store store=new Store(context);int success=0,failed=0;
@@ -46,8 +49,12 @@ public class SyncEngine {
                         Store.put(job,"state","synced");Store.put(job,"message","已同步 "+Instant.now());success++;
                     }catch(Exception e){
                         boolean uncertain=e instanceof Gateway.Failure&&((Gateway.Failure)e).code.equals("write_uncertain");
-                        Store.put(job,"state",uncertain?"uncertain":"failed");
-                        Store.put(job,"message",(uncertain?"需核查：":"同步失败：")+e.getMessage());failed++;
+                        int attempts=job.optInt("attempts")+1;Store.put(job,"attempts",attempts);
+                        boolean transientFailure=e instanceof Gateway.Failure &&
+                            java.util.Arrays.asList("notion_unreachable","notion_rate_limited","gateway_busy","image_upload_incomplete").contains(((Gateway.Failure)e).code);
+                        boolean retry=transientFailure&&attempts<5;
+                        Store.put(job,"state",uncertain?"uncertain":retry?"pending":"failed");
+                        Store.put(job,"message",(uncertain?"需核查：":retry?"等待网络重试：":"同步失败：")+e.getMessage());failed++;
                     }
                     store.set("outbox",job.optString("id"),job);
                 }
