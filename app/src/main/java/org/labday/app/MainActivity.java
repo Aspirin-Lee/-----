@@ -28,15 +28,18 @@ public class MainActivity extends Activity {
         Ui.button(box,"全部记录 / 历史",()->{filter="";load();});
         search=Ui.field(box,"搜索名称、样本、项目、设计和结果","",false);
         search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){load();}public void afterTextChanged(Editable e){}});
-        Ui.button(box,"Notion 任务与连接",()->startActivity(new Intent(this,NotionActivity.class)));
-        Ui.button(box,"同步队列与重试",this::queue);
-        Ui.button(box,"实验模板",this::templates);
-        Ui.button(box,"提醒与步骤计时",this::reminders);
-        Ui.button(box,"导出完整备份 ZIP（含原图与 Markdown）",()->{
+        LinearLayout tools=new LinearLayout(this);tools.setOrientation(LinearLayout.VERTICAL);
+        Ui.button(box,"工具 · Notion / 同步 / 模板 / 备份 / 提醒",()->tools.setVisibility(tools.getVisibility()==android.view.View.VISIBLE?android.view.View.GONE:android.view.View.VISIBLE));
+        tools.setVisibility(android.view.View.GONE);box.addView(tools);
+        Ui.button(tools,"Notion 任务与连接",()->startActivity(new Intent(this,NotionActivity.class)));
+        Ui.button(tools,"同步队列与重试",this::queue);
+        Ui.button(tools,"实验模板",this::templates);
+        Ui.button(tools,"提醒与步骤计时",this::reminders);
+        Ui.button(tools,"导出完整备份 ZIP（含原图与 Markdown）",()->{
             Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
             intent.putExtra(Intent.EXTRA_TITLE,"LabDay-"+LocalDate.now()+".zip");startActivityForResult(intent,EXPORT);
         });
-        Ui.button(box,"从 ZIP 恢复（保留现有记录）",()->new AlertDialog.Builder(this).setMessage("恢复会新增副本，保留现有记录。不会恢复待发送任务或密钥。请先导出当前数据。")
+        Ui.button(tools,"从 ZIP 恢复（保留现有记录）",()->new AlertDialog.Builder(this).setMessage("恢复会新增副本，保留现有记录。不会恢复待发送任务或密钥。请先导出当前数据。")
             .setPositiveButton("选择备份",(d,w)->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE),IMPORT)).setNegativeButton("取消",null).show());
         rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);box.addView(rows);load();
     }
