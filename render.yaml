@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: labday-notion
+    runtime: docker
+    plan: free
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NOTION_TOKEN
+        sync: false
+      - key: NOTION_DATA_SOURCE_ID
+        sync: false
+      - key: APP_ACCESS_TOKEN
+        generateValue: true
+      - key: NOTION_DATE_PROPERTY
+        value: 计划日期
+      - key: NOTION_STATUS_PROPERTY
+        value: 状态
