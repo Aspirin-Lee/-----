@@ -23,25 +23,31 @@ public class Archive {
             JSONArray media=rows.getJSONObject(i).optJSONArray("photos");
             if(media!=null)for(int j=0;j<media.length();j++)photos.add(safe(media.getJSONObject(j).getString("file")));
         }
+        byte[] manifestBytes=data.toString(2).getBytes(StandardCharsets.UTF_8);
+        StringBuilder markdown=new StringBuilder("# 实验记录导出\n\n");
+        for(int i=0;i<records.length();i++){
+            JSONObject o=records.getJSONObject(i);markdown.append("## ").append(o.optString("title")).append("\n\n");
+            for(String key:new String[]{"date","project","sample","design","result","anomaly","imageNotes"})
+                markdown.append("**").append(key).append("**\n\n").append(o.optString(key)).append("\n\n");
+            JSONArray media=o.optJSONArray("photos");
+            if(media!=null)for(int p=0;p<media.length();p++){JSONObject photo=media.getJSONObject(p);markdown.append("![").append(photo.optString("caption").replace("]","")).append("](photos/").append(safe(photo.getString("file"))).append(")\n\n");}
+        }
+        byte[] markdownBytes=markdown.toString().getBytes(StandardCharsets.UTF_8);
+        if(manifestBytes.length>25*1024*1024||markdownBytes.length>25*1024*1024)throw new IOException("文字数据超过单次备份限制25MB");
+        long totalBytes=manifestBytes.length+markdownBytes.length;
+        for(String name:photos){File image=new File(c.getFilesDir(),name);if(!image.exists())throw new IOException("原图缺失："+name);
+            if(image.length()>25*1024*1024)throw new IOException("单张图片超过25MB");totalBytes+=image.length();}
+        if(totalBytes>300L*1024*1024)throw new IOException("本次备份超过300MB，尚不支持分卷；请先将部分图片另行归档。");
         try(OutputStream raw=c.getContentResolver().openOutputStream(uri,"w")){
             if(raw==null)throw new IOException("无法打开备份文件");
             try(ZipOutputStream zip=new ZipOutputStream(raw)){
-                write(zip,"labday.json",data.toString(2).getBytes(StandardCharsets.UTF_8));
+                write(zip,"labday.json",manifestBytes);
                 for(String name:photos){
                     File file=new File(c.getFilesDir(),name);if(!file.exists())throw new IOException("原图缺失："+name);
                     zip.putNextEntry(new ZipEntry("photos/"+name));
                     try(InputStream in=new FileInputStream(file)){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)zip.write(b,0,n);}zip.closeEntry();
                 }
-                StringBuilder md=new StringBuilder("# 实验记录导出\n\n");
-                for(int i=0;i<records.length();i++){
-                    JSONObject o=records.getJSONObject(i);
-                    md.append("## ").append(o.optString("title")).append("\n\n");
-                    for(String key:new String[]{"date","project","sample","design","result","anomaly","imageNotes"})
-                        md.append("**").append(key).append("**\n\n").append(o.optString(key)).append("\n\n");
-                    JSONArray media=o.optJSONArray("photos");
-                    if(media!=null)for(int p=0;p<media.length();p++){JSONObject image=media.getJSONObject(p);md.append("![").append(image.optString("caption").replace("]","")).append("](photos/").append(safe(image.getString("file"))).append(")\n\n");}
-                }
-                write(zip,"records.md",md.toString().getBytes(StandardCharsets.UTF_8));
+                write(zip,"records.md",markdownBytes);
             }
         }
         return "备份完成："+records.length()+" 条记录、"+drafts.length()+" 份草稿、"+photos.size()+" 张原图。连接密钥不在备份中。";
@@ -59,7 +65,11 @@ public class Archive {
                         if(entry.isDirectory())continue;
                         String name=entry.getName();
                         if(!name.equals("labday.json")&&!name.equals("records.md")&&!name.startsWith("photos/"))throw new IOException("备份包含未知文件");
-                        if(name.equals("records.md"))continue;
+                        if(name.equals("records.md")){
+                            byte[] ignored=new byte[8192];int n;long item=0;
+                            while((n=zip.read(ignored))!=-1){item+=n;total+=n;if(item>25*1024*1024||total>300L*1024*1024)throw new IOException("备份超过导入大小限制");}
+                            continue;
+                        }
                         String key=name.equals("labday.json")?name:"photos/"+safe(name.substring(7));
                         if(staged.containsKey(key))throw new IOException("备份包含重复文件");
                         File tmp=File.createTempFile("restore-",".tmp",c.getCacheDir());staged.put(key,tmp);
